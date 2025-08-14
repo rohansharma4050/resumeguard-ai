@@ -32,19 +32,6 @@ No build process or backend is required.
 ### 3. Live Demo (via GitHub Pages)
 It is deployed to GitHub Pages, you can access it at:
 
----
-
-##  Project Structure
-
-resume-guard-ai/
-│
-├── index.html # Main UI
-├── css/
-│ └── style.css # Stylesheet
-├── js/
-│ └── app.js # Application logic
-│── README.md # Project documentation
-
 
 ---
 
@@ -58,7 +45,7 @@ resume-guard-ai/
 
 
 ##  Contributing
-We welcome contributions! To propose changes:
+Welcoming contributions! To propose changes:
 1. Fork this repository
 2. Create a branch: `git checkout -b feature-name`
 3. Commit your changes: `git commit -m 'Add some feature'`
