@@ -1,0 +1,256 @@
+let uploadedFile = null;
+let resumeText = '';
+
+class ResumeVerifier {
+    constructor() {
+        this.suspiciousPatterns = [
+            'responsible for','worked on','involved in','participated in','helped with',
+            'assisted in','contributed to','exposure to'
+        ];
+        this.seniorityKeywords = [
+            'senior','lead','principal','architect','manager','director','vp','vice president',
+            'head of','chief','cto','ceo','cfo'
+        ];
+        this.techKeywords = [
+            'javascript','python','java','react','angular','vue','node.js','aws','docker',
+            'kubernetes','ai','machine learning','blockchain','web3','devops','microservices'
+        ];
+    }
+
+    analyzeResume(resumeText, linkedinUrl) {
+        const flags = [];
+        let riskScore = 0;
+        const info = this.extractResumeInfo(resumeText);
+
+        const timelineRisk = this.checkTimeline(resumeText, info);
+        riskScore += timelineRisk.score; flags.push(...timelineRisk.flags);
+
+        const seniorityRisk = this.checkSeniority(resumeText, info);
+        riskScore += seniorityRisk.score; flags.push(...seniorityRisk.flags);
+
+        const genericRisk = this.checkGenericDescriptions(resumeText);
+        riskScore += genericRisk.score; flags.push(...genericRisk.flags);
+
+        const skillsRisk = this.checkSkillsAlignment(resumeText, info);
+        riskScore += skillsRisk.score; flags.push(...skillsRisk.flags);
+
+        const linkedinRisk = this.checkLinkedIn(linkedinUrl);
+        riskScore += linkedinRisk.score; flags.push(...linkedinRisk.flags);
+
+        const qualityRisk = this.checkResumeQuality(resumeText);
+        riskScore += qualityRisk.score; flags.push(...qualityRisk.flags);
+
+        // New: Graduation Year Check
+        const gradYearRisk = this.checkGraduationYears(resumeText);
+        riskScore += gradYearRisk.score; flags.push(...gradYearRisk.flags);
+
+        return {
+            riskScore: Math.min(riskScore, 100),
+            riskLevel: this.getRiskLevel(riskScore),
+            flags: flags
+        };
+    }
+
+    extractResumeInfo(text) {
+        const lowerText = text.toLowerCase();
+        const expMatch = text.match(/(\d+)\+?\s*years?\s*(of\s*)?(experience|exp)/i);
+        const totalExperience = expMatch ? parseInt(expMatch[1]) : 0;
+        const jobTitles = [];
+        text.split('\n').forEach(line => {
+            if (line.match(/\b(engineer|developer|manager|analyst|consultant|specialist|architect|lead|senior|junior)\b/i)) {
+                jobTitles.push(line.trim());
+            }
+        });
+        const yearMatches = text.match(/\b(19|20)\d{2}\b/g) || [];
+        const years = [...new Set(yearMatches)].map(y => parseInt(y)).sort();
+        const hasEducation = lowerText.includes('education') || lowerText.includes('degree') ||
+                             lowerText.includes('university') || lowerText.includes('college');
+        return { totalExperience, jobTitles, years, hasEducation };
+    }
+
+    checkTimeline(_, info) {
+        const flags = [];
+        let score = 0;
+        const currentYear = new Date().getFullYear();
+        const futureYears = info.years.filter(y => y > currentYear);
+        if (futureYears.length > 0) {
+            flags.push({type:'high',title:'Future Employment Dates',description:`Dates: ${futureYears.join(', ')}`});
+            score += 35;
+        }
+        if (info.years.length >= 2) {
+            const span = Math.max(...info.years) - Math.min(...info.years);
+            const sRoles = info.jobTitles.filter(t => this.seniorityKeywords.some(k => t.toLowerCase().includes(k))).length;
+            if (sRoles > 0 && span < 3) {
+                flags.push({type:'high',title:'Unrealistic Career Progression',description:`Senior roles within ${span} years.`});
+                score += 30;
+            }
+        }
+        return {score, flags};
+    }
+
+    checkSeniority(_, info) {
+        const flags = [];
+        let score = 0;
+        const sTitles = info.jobTitles.filter(t => this.seniorityKeywords.some(k => t.toLowerCase().includes(k)));
+        if (sTitles.length > 0 && info.totalExperience < 4 && info.totalExperience > 0) {
+            flags.push({type:'high',title:'Experience Mismatch',description:`${info.totalExperience} yrs exp but senior roles claimed.`});
+            score += 40;
+        }
+        return {score, flags};
+    }
+
+    checkGenericDescriptions(text) {
+        const flags = [];
+        let score = 0;
+        const count = this.suspiciousPatterns.filter(p => text.toLowerCase().includes(p)).length;
+        if (count >= 4) { flags.push({type:'high',title:'Generic Descriptions',description:`${count} generic phrases`}); score += 30; }
+        else if (count >= 2) { flags.push({type:'warning',title:'Vague Descriptions',description:`${count} generic phrases`}); score += 15; }
+        return {score, flags};
+    }
+
+    checkSkillsAlignment(text, info) {
+        const flags = [];
+        let score = 0;
+        const skillsFound = this.techKeywords.filter(s => text.toLowerCase().includes(s)).length;
+        if (skillsFound > 15 && info.totalExperience < 3 && info.totalExperience > 0) {
+            flags.push({type:'warning',title:'Skills vs Experience Mismatch',description:`${skillsFound} skills but little exp.`});
+            score += 20;
+        }
+        return {score, flags};
+    }
+
+    checkLinkedIn(url) {
+        const flags = []; let score = 0;
+        if (!url || url.trim() === '') { flags.push({type:'warning',title:'Missing LinkedIn',description:'No profile provided'}); score += 15;}
+        else if (!url.includes('linkedin.com/in/')) { flags.push({type:'warning',title:'Invalid LinkedIn URL',description:'Check formatting'}); score += 10;}
+        return {score, flags};
+    }
+
+    checkResumeQuality(text) {
+        const flags = []; let score = 0;
+        if (text.length < 500) { flags.push({type:'high',title:'Too Short',description:'Resume is brief'}); score += 25; }
+        return {score, flags};
+    }
+
+    checkGraduationYears(text) {
+        const flags = []; let score = 0;
+        const eduLines = text.split('\n').filter(l => /bachelor|master/i.test(l));
+        eduLines.forEach(line => {
+            const hasYear = /\b(19|20)\d{2}\b/.test(line);
+            if (!hasYear) {
+                flags.push({type:'warning',title:'Missing Graduation Year',description:`"${line.trim()}" missing end year`});
+                score += 15;
+            }
+        });
+        return {score, flags};
+    }
+
+    getRiskLevel(score) {
+        if (score >= 60) return 'high';
+        if (score >= 30) return 'medium';
+        return 'low';
+    }
+}
+
+const verifier = new ResumeVerifier();
+
+// Upload & drag-drop handling from your original code
+const uploadArea = document.getElementById('uploadArea');
+const resumeInput = document.getElementById('resumeInput');
+const filePreview = document.getElementById('filePreview');
+const analyzeBtn = document.getElementById('analyzeBtn');
+
+uploadArea.addEventListener('click', () => resumeInput.click());
+uploadArea.addEventListener('dragover', e => { e.preventDefault(); uploadArea.classList.add('dragover'); });
+uploadArea.addEventListener('dragleave', e => { e.preventDefault(); uploadArea.classList.remove('dragover'); });
+uploadArea.addEventListener('drop', handleDrop);
+resumeInput.addEventListener('change', e => { if (e.target.files.length > 0) processFile(e.target.files[0]); });
+document.getElementById('linkedinUrl').addEventListener('input', updateAnalyzeButton);
+
+function handleDrop(e) {
+    e.preventDefault();
+    uploadArea.classList.remove('dragover');
+    if (e.dataTransfer.files.length > 0) processFile(e.dataTransfer.files[0]);
+}
+
+function processFile(file) {
+    uploadedFile = file;
+    document.getElementById('fileName').textContent = file.name;
+    document.getElementById('fileSize').textContent = formatSize(file.size);
+    filePreview.classList.add('show');
+    readFileContent(file);
+    updateAnalyzeButton();
+}
+
+function formatSize(bytes) {
+    const sizes = ['Bytes','KB','MB','GB'];
+    const i = Math.floor(Math.log(bytes)/Math.log(1024));
+    return (bytes/Math.pow(1024,i)).toFixed(2)+' '+sizes[i];
+}
+
+function readFileContent(file) {
+    const reader = new FileReader();
+    
+    reader.onload = function(e) {
+        if (file.type === 'application/pdf') {
+            resumeText = ''; // Don't display raw PDF objects
+            showResumePreview("PDF uploaded successfully. Content will be analyzed, not displayed here.");
+        } else {
+            resumeText = e.target.result;
+            showResumePreview(resumeText);
+        }
+    };
+
+    if (file.type === 'text/plain') {
+        reader.readAsText(file);
+    } else {
+        reader.readAsArrayBuffer(file);
+    }
+}
+
+
+function showResumePreview(content) {
+    const box = document.getElementById('resumeContent');
+    box.textContent = content.substring(0, 500) + (content.length > 500 ? '...' : '');
+    box.style.display = 'block';
+}
+
+function removeFile() {
+    uploadedFile = null; resumeText = '';
+    filePreview.classList.remove('show');
+    document.getElementById('resumeContent').style.display = 'none';
+    resumeInput.value = '';
+    updateAnalyzeButton();
+}
+
+function updateAnalyzeButton() {
+    analyzeBtn.disabled = !(uploadedFile && document.getElementById('linkedinUrl').value.trim() !== '');
+}
+
+function analyzeCandidate() {
+    const linkedinUrl = document.getElementById('linkedinUrl').value;
+    const analysis = verifier.analyzeResume(resumeText, linkedinUrl);
+    showResults(analysis);
+}
+
+function showResults(analysis) {
+    const resultsSection = document.getElementById('resultsSection');
+    const scoreCircle = document.getElementById('scoreCircle');
+    const riskTitle = document.getElementById('riskTitle');
+    const riskSubtitle = document.getElementById('riskSubtitle');
+    const flagsContainer = document.getElementById('flagsContainer');
+
+    resultsSection.classList.add('show');
+    scoreCircle.textContent = analysis.riskScore;
+    scoreCircle.className = `score-circle score-${analysis.riskLevel}`;
+    riskTitle.textContent = analysis.riskLevel.toUpperCase() + " RISK";
+    riskSubtitle.textContent = "Based on automated resume analysis";
+    flagsContainer.innerHTML = '';
+
+    analysis.flags.forEach(flag => {
+        const div = document.createElement('div');
+        div.className = `flag-item ${flag.type === 'high' ? '' : flag.type}`;
+        div.innerHTML = `<div class="flag-title">${flag.title}</div><div class="flag-description">${flag.description}</div>`;
+        flagsContainer.appendChild(div);
+    });
+}
