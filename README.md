@@ -31,7 +31,7 @@ No build process or backend is required.
 
 ### 3. Live Demo (via GitHub Pages)
 It is deployed to GitHub Pages, you can access it at:
-
+https://rohansharma4050.github.io/resumeguard-ai/
 
 ---
 
